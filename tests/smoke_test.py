@@ -26,7 +26,7 @@ imes = m.enum_imes()
 print("找到 %d 个声明了 IconFile 的剖面\n" % len(imes))
 
 print("=" * 78)
-print("2. 验证 find_fallback_icon（替换掉硬编码 ORIGINAL_ICONFILE 的新逻辑）")
+print("2. 验证 find_fallback_icon（从 COM 注册位置动态推导兜底图标来源）")
 print("=" * 78)
 ok_cnt = 0
 for name, prof, icon, itype, idx in imes:
