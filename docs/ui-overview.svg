@@ -3,6 +3,8 @@
   <desc id="uiDesc">界面分三步：第一步枚举本机输入法并列出图标来源；第二步选择字符、字体、字重、字号，并按 16、20、24、32 像素的真实尺寸预览；第三步依次生成图标文件、备份原设置、写入注册表，写入需要管理员确认，另有还原按钮可随时回滚。</desc>
 
   <rect width="1000" height="470" fill="#FFFFFF"/>
+  <!-- svg-audit:ignore-small 12 -->
+  <!-- 12px 仅用于预览区「16 像素」那一枚图标，刻意做小以示意任务栏真实观感 -->
 
   <!-- 顶部说明 -->
   <text x="30" y="42" font-family="Segoe UI, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="600" fill="#2C2C2A">三步向导</text>
@@ -75,10 +77,10 @@
   <text x="482" y="352" font-family="Segoe UI, Microsoft YaHei, Arial, sans-serif" font-size="16" fill="#2C2C2A" text-anchor="middle" dominant-baseline="central">中</text>
   <text x="532" y="352" font-family="Segoe UI, Microsoft YaHei, Arial, sans-serif" font-size="20" fill="#2C2C2A" text-anchor="middle" dominant-baseline="central">中</text>
   <text x="602" y="352" font-family="Segoe UI, Microsoft YaHei, Arial, sans-serif" font-size="28" fill="#2C2C2A" text-anchor="middle" dominant-baseline="central">中</text>
-  <text x="440" y="380" font-family="Consolas, Courier New, monospace" font-size="14" fill="#888780" text-anchor="middle" dominant-baseline="central">16</text>
-  <text x="482" y="380" font-family="Consolas, Courier New, monospace" font-size="14" fill="#888780" text-anchor="middle" dominant-baseline="central">20</text>
-  <text x="532" y="380" font-family="Consolas, Courier New, monospace" font-size="14" fill="#888780" text-anchor="middle" dominant-baseline="central">24</text>
-  <text x="602" y="380" font-family="Consolas, Courier New, monospace" font-size="14" fill="#888780" text-anchor="middle" dominant-baseline="central">32</text>
+  <text x="440" y="380" font-family="Consolas, Courier New, monospace" font-size="15" fill="#888780" text-anchor="middle" dominant-baseline="central">16</text>
+  <text x="482" y="380" font-family="Consolas, Courier New, monospace" font-size="15" fill="#888780" text-anchor="middle" dominant-baseline="central">20</text>
+  <text x="532" y="380" font-family="Consolas, Courier New, monospace" font-size="15" fill="#888780" text-anchor="middle" dominant-baseline="central">24</text>
+  <text x="602" y="380" font-family="Consolas, Courier New, monospace" font-size="15" fill="#888780" text-anchor="middle" dominant-baseline="central">32</text>
 
   <text x="412" y="410" font-family="Segoe UI, Microsoft YaHei, Arial, sans-serif" font-size="15" fill="#888780" dominant-baseline="central">按任务栏真实像素渲染，</text>
   <text x="412" y="428" font-family="Segoe UI, Microsoft YaHei, Arial, sans-serif" font-size="15" fill="#888780" dominant-baseline="central">可切深色背景对比</text>
