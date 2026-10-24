@@ -175,6 +175,43 @@ check("源码无本机隐私残留", leaks, [])
 
 print()
 print("=" * 78)
+print("I. IconIndex 必须与 IconFile 一起写（实际缺陷的回归判据）")
+print("=" * 78)
+# 缺陷由来：宿主 DLL 只含 1 个 RT_GROUP_ICON，索引只能是 0。
+# 若只改 IconFile 而保留原来的 IconIndex（微软拼音系是 0..4），
+# 系统会去取第 N 个图标组 —— 越界，图标显示不出来。
+# 表现为「换了没效果」，且还原后可能取错图标。
+
+# I-1 静态判据：源码里每处 SetValueEx("IconFile") 都要有配套的 "IconIndex"
+set_file = [l for l in code_only.splitlines()
+            if "SetValueEx" in l and '"IconFile"' in l]
+set_idx = [l for l in code_only.splitlines()
+           if "SetValueEx" in l and '"IconIndex"' in l]
+check("写 IconFile 的行数与写 IconIndex 的行数一致",
+      (len(set_file), len(set_idx)), (2, 2))
+
+# I-2 载荷校验：非法值必须被拒，合法值原样返回
+checker = getattr(m, "_checked_iconindex", None)
+if checker is None:
+    check("存在 _checked_iconindex 校验函数", False, True)
+else:
+    cases = [
+        ({}, 0, "缺省按 0"),
+        ({"iconindex": 0}, 0, "0"),
+        ({"iconindex": 3}, 3, "3"),
+        ({"iconindex": 4096}, 4096, "上界 4096"),
+        ({"iconindex": 4097}, None, "超上界"),
+        ({"iconindex": -1}, None, "负数"),
+        ({"iconindex": "3"}, None, "字符串"),
+        ({"iconindex": True}, None, "bool（True 是 int 子类，必须排除）"),
+        ({"iconindex": 3.0}, None, "浮点"),
+        ({"iconindex": None}, None, "None"),
+    ]
+    for payload, want, label in cases:
+        check("iconindex %s" % label, checker(payload), want)
+
+print()
+print("=" * 78)
 print("结果：%s" % ("全部通过" if not fails
                  else "有 %d 项失败：%s" % (len(fails), fails)))
 print("=" * 78)

@@ -40,7 +40,8 @@ APP_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
                        "ImeIconTool")
 HOST_DLL = os.path.join(APP_DIR, "iconhost.dll")
 HOST_ICO = os.path.join(APP_DIR, "icon.ico")
-BACKUP_JSON = os.path.join(APP_DIR, "backup.json")
+BACKUP_JSON = os.path.join(APP_DIR, "backup.json")          # 旧格式：只存一条
+BACKUPS_JSON = os.path.join(APP_DIR, "backups.json")        # 新格式：按剖面分别存
 LOG_TXT = os.path.join(APP_DIR, "diagnostics.txt")
 
 TIP_ROOT = r"SOFTWARE\Microsoft\CTF\TIP"
@@ -312,50 +313,102 @@ def verify_host_dll(path):
 # --------------------------------------------------------------------------
 # 备份
 # --------------------------------------------------------------------------
+def _load_all_backups():
+    """返回 {profile: record}。
+
+    同时读两种格式：
+      - 旧 `backup.json`：单条，只有一个 profile
+      - 新 `backups.json`：{profile: record}，每个输入法一条
+    后者优先（本版本写入的）。
+    """
+    out = {}
+    if os.path.exists(BACKUP_JSON):
+        try:
+            with open(BACKUP_JSON, encoding="utf-8") as f:
+                old = json.load(f)
+            if isinstance(old, dict) and old.get("profile"):
+                out[old["profile"]] = old
+        except (OSError, ValueError):
+            pass
+    if os.path.exists(BACKUPS_JSON):
+        try:
+            with open(BACKUPS_JSON, encoding="utf-8") as f:
+                d = json.load(f)
+            if isinstance(d, dict):
+                for v in d.values():
+                    if isinstance(v, dict) and v.get("profile"):
+                        out[v["profile"]] = v
+        except (OSError, ValueError):
+            pass
+    return out
+
+
 def save_backup(profile_path, iconfile, icontype, iconindex):
     """记录「本工具动手之前」的原始值。
 
-    **绝不覆盖已存在的备份。** 备份的语义是"第一次改动前的状态"。
+    **同一个剖面绝不覆盖已存在的备份** —— 备份的语义是"第一次改动前的状态"。
     若每次应用都覆盖，原始值会被自己上一次写进去的值顶掉，
     最后指向一个可能被删除的路径 —— 「还原」就废了。
-    （这是真实踩过的坑：备份里曾记成另一个临时工具目录的路径。）
 
-    值发生变化时，把新值追加到 *_history.jsonl 作为审计记录，但主备份不动。
+    **但不同剖面各自独立。** 早先用单个文件、只存一条，改过 A 再改 B 时，
+    B 的记录进不去，A 的就成了唯一能还原的那个 —— 用户改了两个输入法却只能
+    还原一个。现在按 profile 分开存。
+
+    值发生变化时把新值追加到 *_history.jsonl 作为审计记录，主备份不动。
     """
     ensure_app_dir()
     data = dict(profile=profile_path, iconfile=iconfile, icontype=icontype,
                 iconindex=iconindex, saved_at=time.strftime("%Y-%m-%d %H:%M:%S"))
 
-    if os.path.exists(BACKUP_JSON):
-        try:
-            with open(BACKUP_JSON, encoding="utf-8") as f:
-                first = json.load(f)
-            if first.get("iconfile") != iconfile:
-                hist = BACKUP_JSON[:-5] + "_history.jsonl"
+    allb = _load_all_backups()
+    if profile_path in allb:
+        first = allb[profile_path]
+        if first.get("iconfile") != iconfile:
+            hist = os.path.join(APP_DIR, "backup_history.jsonl")
+            try:
                 with open(hist, "a", encoding="utf-8") as h:
                     h.write(json.dumps(data, ensure_ascii=False) + "\n")
-            return first
-        except (OSError, ValueError):
-            pass                                    # 坏了就重建
+            except OSError:
+                pass
+        return first
 
-    with open(BACKUP_JSON, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    allb[profile_path] = data
+    try:
+        with open(BACKUPS_JSON, "w", encoding="utf-8") as f:
+            json.dump(allb, f, ensure_ascii=False, indent=2)
+    except OSError:
+        pass
     return data
 
 
-def load_backup():
-    if not os.path.exists(BACKUP_JSON):
+def load_backup(profile_path=None):
+    """取备份。给了 profile 就取该剖面；没给取最近一条（兼容旧调用）。"""
+    allb = _load_all_backups()
+    if not allb:
         return None
-    try:
-        with open(BACKUP_JSON, encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return None
+    if profile_path:
+        return allb.get(profile_path)
+    return max(allb.values(), key=lambda r: r.get("saved_at", ""))
 
 
 # --------------------------------------------------------------------------
 # 提权写入（自举重入：提权后仍是本程序，动作固定）
 # --------------------------------------------------------------------------
+def _checked_iconindex(payload):
+    """校验载荷里的 iconindex。
+
+    提权上下文不能盲信上层传来的数据：必须是普通 int（排除 bool，
+    因为 Python 里 True 是 int 的子类）、且落在 0..4096 的合理范围。
+    不合法返回 None，由调用方转成错误码 8。
+    """
+    idx = payload.get("iconindex", 0)
+    if isinstance(idx, bool) or not isinstance(idx, int):
+        return None
+    if not (0 <= idx <= 4096):
+        return None
+    return idx
+
+
 def elevated_write(payload):
     """在提权后的实例里执行。payload 已被上层校验过。
 
@@ -375,11 +428,17 @@ def elevated_write(payload):
     tmap = {"REG_SZ": winreg.REG_SZ, "REG_EXPAND_SZ": winreg.REG_EXPAND_SZ}
     if vtype not in tmap:
         return 6
+
+    idx = _checked_iconindex(payload)
+    if idx is None:
+        return 8
+
     try:
         k = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, prof, 0,
                            winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY)
         try:
             winreg.SetValueEx(k, "IconFile", 0, tmap[vtype], value)
+            winreg.SetValueEx(k, "IconIndex", 0, winreg.REG_DWORD, idx)
         finally:
             winreg.CloseKey(k)
     except OSError:
@@ -387,21 +446,29 @@ def elevated_write(payload):
     return 0
 
 
-def run_elevated_write(profile, value, vtype):
-    """启动本程序的提权副本去写注册表；返回 (ok, 说明)。"""
+def run_elevated_write(profile, value, vtype, iconindex=0):
+    """启动本程序的提权副本去写注册表；返回 (ok, 说明)。
+
+    **iconindex 必须与 IconFile 一起写。** 本工具生成的宿主 DLL 只含 1 个
+    `RT_GROUP_ICON`，索引只能是 0。若只改 IconFile 而保留该输入法原来的
+    IconIndex（微软拼音系是 0..4），系统就会去取第 N 个图标组 —— 越界，
+    图标直接显示不出来。这是实际踩到的缺陷：表现为「换了没效果」。
+    """
     ensure_app_dir()
     payload_file = os.path.join(APP_DIR, "_elev.json")
     with open(payload_file, "w", encoding="utf-8") as f:
-        json.dump(dict(profile=profile, value=value, type=vtype), f, ensure_ascii=False)
+        json.dump(dict(profile=profile, value=value, type=vtype,
+                       iconindex=int(iconindex)), f, ensure_ascii=False)
     return _spawn_elevated(["--elevate-write", payload_file])
 
 
-def run_elevated_restore(profile, iconfile, icontype):
+def run_elevated_restore(profile, iconfile, icontype, iconindex):
+    """还原原始值。IconIndex 同样必须写回 —— 否则指向正确的 DLL 却取错图标。"""
     ensure_app_dir()
     payload_file = os.path.join(APP_DIR, "_elev.json")
     with open(payload_file, "w", encoding="utf-8") as f:
         json.dump(dict(profile=profile, value=iconfile, type=icontype,
-                       restore=True), f, ensure_ascii=False)
+                       iconindex=int(iconindex), restore=True), f, ensure_ascii=False)
     return _spawn_elevated(["--elevate-restore", payload_file])
 
 
@@ -450,11 +517,17 @@ def elevated_restore(payload):
     tmap = {"REG_SZ": winreg.REG_SZ, "REG_EXPAND_SZ": winreg.REG_EXPAND_SZ}
     if vtype not in tmap:
         return 6
+
+    idx = _checked_iconindex(payload)
+    if idx is None:
+        return 8
+
     try:
         k = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, prof, 0,
                            winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY)
         try:
             winreg.SetValueEx(k, "IconFile", 0, tmap[vtype], value)
+            winreg.SetValueEx(k, "IconIndex", 0, winreg.REG_DWORD, idx)
         finally:
             winreg.CloseKey(k)
     except OSError:
@@ -891,7 +964,7 @@ class App:
 
         vtype = "REG_SZ" if itype != winreg.REG_EXPAND_SZ else "REG_EXPAND_SZ"
         self.say("正在请求管理员权限写入注册表…")
-        ok, msg = run_elevated_write(prof, HOST_DLL, vtype)
+        ok, msg = run_elevated_write(prof, HOST_DLL, vtype, 0)
         self.say(msg)
         if ok:
             self._after_scan()
@@ -901,10 +974,32 @@ class App:
             messagebox.showerror("未完成", msg + "\n\n系统状态未改变，可重试。")
 
     def do_restore(self):
-        b = load_backup()
+        sel_name = self.sel[0] if self.sel else ""
+        sel_prof = self.sel[1] if self.sel else None
+
+        # 优先还原「当前选中的这个输入法」。
+        # 早先只取全局唯一备份，选中的是 A 却会去还原 B，用户看起来就是"点了没反应"。
+        b = load_backup(sel_prof) if sel_prof else None
         if not b:
-            messagebox.showinfo("没有备份", "还没有备份记录，说明本程序未修改过任何设置。")
-            return
+            allb = _load_all_backups()
+            if not allb:
+                messagebox.showinfo("没有备份",
+                                    "还没有任何备份记录，说明本程序未修改过任何设置。")
+                return
+            if sel_prof:
+                by_prof = {r[1]: r[0] for r in self.imes}
+                names = [by_prof.get(p) or p.rsplit("\\", 1)[-1] for p in allb]
+                messagebox.showinfo(
+                    "这个输入法没有备份",
+                    "「%s」没有改动记录，本程序没有它的原始值，无法自动还原。\n\n"
+                    "有备份的是：\n  %s\n\n"
+                    "请先选中对应的输入法，再点还原。"
+                    % (sel_name or "当前项", "\n  ".join(names)))
+                return
+            b = load_backup()
+            if not b:
+                messagebox.showinfo("没有备份", "还没有备份记录。")
+                return
         target = b.get("iconfile", "")
         # 备份指向的文件如果已经不存在（例如曾被指向别处的临时文件），
         # 硬写回去会让图标直接坏掉。先提示并给出替代方案。
@@ -935,7 +1030,8 @@ class App:
                     "需要管理员权限（会弹 UAC）。继续吗？" % target):
                 return
         self.say("正在还原…")
-        ok, msg = run_elevated_restore(b["profile"], b["iconfile"], b["icontype"])
+        ok, msg = run_elevated_restore(b["profile"], b["iconfile"], b["icontype"],
+                                       b.get("iconindex", 0))
         self.say(msg)
         if ok:
             self._after_scan()
