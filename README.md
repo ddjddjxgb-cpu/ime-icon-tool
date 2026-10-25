@@ -21,14 +21,34 @@
 
 ---
 
-## 快速开始
+## 下载使用（推荐）
 
-### 方式一：直接运行源码（推荐，无需构建）
+不想装 Python？直接下打包好的版本：
+
+### **[⬇ 下载最新版 ImeIconTool-win64.zip](https://github.com/ddjddjxgb-cpu/ime-icon-tool/releases/latest)**
+
+1. 下载 zip，**完整解压**（`_internal` 文件夹必须和 exe 放在一起）
+2. 双击 `ImeIconTool.exe`
+3. 选输入法 → 输入字符 → 点「应用」→ UAC 点「是」
+4. 想还原：点「还原成原始图标」，一步退回原样
+
+包内附 `使用说明.txt`（含还原与卸载说明）。程序免安装，只写
+`%LOCALAPPDATA%\ImeIconTool\` 一个目录，删掉即完全卸载。
+
+> 需要 **Windows 10/11 64 位**。程序未做代码签名，首次运行可能提示
+> 「Windows 已保护你的电脑」，点「更多信息 → 仍要运行」。
+> 校验文件完整性的方法见下文「使用须知」第 3 条。
+
+---
+
+## 从源码运行
+
+### 方式一：直接运行源码（无需构建）
 
 需要 **Windows 10/11 64 位** + **Python 3.9+**（含 tkinter 与 Pillow）。
 
 ```bat
-pip install pillow
+pip install -r requirements.txt
 python src\ime_icon_tool.pyw
 ```
 
@@ -79,8 +99,9 @@ Windows 对任务栏图标有缓存。程序里有个「刷新图标」按钮（
 因为本项目**没有代码签名证书**，Windows 会提示「Windows 已保护你的电脑」。
 这是未签名程序的正常表现，不代表文件有问题。
 
-判断来源是否可信的办法：核对文件的 SHA-256 摘要与发布页一致。
-如果心里没底，**请直接看源码自己构建**——这也是本项目只发源码的原因。
+判断来源是否可信的办法：核对下载文件的 SHA-256 与发布页附带的
+`SHA256SUMS.txt` 是否一致（Windows 可用 `certutil -hashfile 文件名 SHA256`）。
+如果心里没底，**请直接看源码自己构建**——这也是本项目同时提供源码的原因。
 
 ---
 
