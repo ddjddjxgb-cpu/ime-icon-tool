@@ -39,6 +39,21 @@ RELEASE_NOTES_PATH = RELEASE_DIR / "RELEASE_NOTES.md"
 CHANGELOG_PATH = ROOT / "CHANGELOG.md"
 REPO_URL = "https://github.com/ddjddjxgb-cpu/ime-icon-tool"
 
+# 剔除本程序完全不依赖的第三方重型包与标准库模块，减小 --onedir 体积
+EXCLUDED_MODULES = [
+    # 第三方包
+    "numpy", "scipy", "matplotlib", "pandas", "psutil", "charset_normalizer",
+    "requests", "urllib3", "certifi", "setuptools", "pkg_resources", "pip",
+    "wheel", "pytest", "PyQt5", "PyQt6", "PySide2", "PySide6", "wx",
+    "olefile", "defusedxml", "cffi", "pycparser",
+    # 未使用标准库
+    "unittest", "pydoc", "doctest", "xmlrpc", "pdb", "bdb", "profile",
+    "cProfile", "pstats", "timeit", "trace", "turtle", "turtledemo",
+    "idlelib", "lib2to3", "ensurepip", "venv", "ftplib", "smtplib",
+    "imaplib", "poplib", "nntplib", "http", "urllib", "email", "ssl", "_ssl",
+    "webbrowser",
+]
+
 
 def run(cmd, cwd=ROOT):
     print("+", " ".join(str(c) for c in cmd), flush=True)
@@ -203,7 +218,7 @@ def build_exe(version: str):
     if spec_file.exists():
         spec_file.unlink()
 
-    run([
+    pyinstaller_cmd = [
         sys.executable, "-m", "PyInstaller",
         "--noconfirm",
         "--clean",
@@ -211,8 +226,11 @@ def build_exe(version: str):
         "--windowed",
         "--name", "ImeIconTool",
         "--paths", "src",
-        "src/ime_icon_tool.pyw",
-    ])
+    ]
+    for mod in EXCLUDED_MODULES:
+        pyinstaller_cmd.extend(["--exclude-module", mod])
+    pyinstaller_cmd.append("src/ime_icon_tool.pyw")
+    run(pyinstaller_cmd)
 
     exe_path = APP_OUT / "ImeIconTool.exe"
     internal_dir = APP_OUT / "_internal"

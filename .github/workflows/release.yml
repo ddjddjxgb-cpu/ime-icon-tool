@@ -42,10 +42,12 @@ jobs:
       - name: 测试并构建发布压缩包
         run: python scripts/build_release.py
 
-      - name: 上传构建产物
+      - name: 上传构建产物（仅手动试构建）
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: ImeIconTool-win64
+          retention-days: 7
           path: |
             dist/release/ImeIconTool-win64.zip
             dist/release/SHA256SUMS.txt
