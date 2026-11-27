@@ -84,7 +84,7 @@ IMAGE_RESOURCE_DIRECTORY (root)
 | 坑 | 表现 | 正确做法 |
 |---|---|---|
 | 多插一层语言目录 | `ExtractIconExW(-1)=1` 但 `(0)` 取不到 HICON | 层级是 `root → 类型 → 名称 → 数据`，语言 ID 作为名称目录条目的**名字**直接指向数据项 |
-| `NumberOfIdEntries` 偏移 | 读出来是 0，报「资源类型数 = 0」 | 在 `IME_RESOURCE_DIRECTORY` 的第 **14** 字节，不是 12 |
+| `NumberOfIdEntries` 偏移 | 读出来是 0，报「资源类型数 = 0」 | 在 `IMAGE_RESOURCE_DIRECTORY` 的第 **14** 字节，不是 12 |
 | `DataDirectory[2]` 偏移 | 读到了 `[0]`（导出表） | 偏移是 `可选头起点 + 112 + 2 * 8` |
 | `e_lfanew` 取值 | 报「缺少 PE 签名」 | 应为 `len(DOS头) + len(stub)`（本实现为 78），不是固定 64 |
 | 可选头多写 8 字节 | `AssertionError: 248` | 不要重复写 `AddressOfEntryPoint` / `BaseOfCode` |

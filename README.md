@@ -27,13 +27,13 @@
 
 ### **[⬇ 下载最新版 ImeIconTool-win64.zip](https://github.com/ddjddjxgb-cpu/ime-icon-tool/releases/latest)**
 
-1. 下载 zip，**完整解压**（`_internal` 文件夹必须和 exe 放在一起）
+1. 下载 zip，**完整解压**（`ImeIconTool` 目录内的 `_internal` 文件夹必须和 `ImeIconTool.exe` 放在一起）
 2. 双击 `ImeIconTool.exe`
-3. 选输入法 → 输入字符 → 点「应用」→ UAC 点「是」
+3. 选输入法 → 输入字符并选样式/字体（默认白底黑字，浅深任务栏皆清晰；可选黑底白字或透明底） → 点「开始应用」→ UAC 点「是」
 4. 想还原：点「还原成原始图标」，一步退回原样
 
 包内附 `使用说明.txt`（含还原与卸载说明）。程序免安装，只写
-`%LOCALAPPDATA%\ImeIconTool\` 一个目录，删掉即完全卸载。
+`%LOCALAPPDATA%\ImeIconTool\` 一个目录；卸载时请**先在工具里点「还原成原始图标」**，再删掉程序文件夹和该数据目录即可。
 
 > 需要 **Windows 10/11 64 位**。程序未做代码签名，首次运行可能提示
 > 「Windows 已保护你的电脑」，点「更多信息 → 仍要运行」。
@@ -54,17 +54,17 @@ python src\ime_icon_tool.pyw
 
 或者双击 `src\ime_icon_tool.pyw`（`.pyw` 会以无控制台窗口方式启动）。
 
-### 方式二：自己打包成单文件 exe
+### 方式二：自己打包成发布包（推荐用统一脚本）
 
 ```bat
-pip install pillow pyinstaller
-pyinstaller --noconfirm --onedir --windowed ^
-    --name ImeIconTool ^
-    --paths src ^
-    src\ime_icon_tool.pyw
+pip install -r requirements.txt
+pip install pyinstaller
+python scripts\build_release.py
 ```
 
-产物在 `dist\ImeIconTool\`。**建议用 `--onedir` 而不是 `--onefile`**：
+脚本会先跑完整测试与语法检查，再用 `--onedir` 构建到 `dist\ImeIconTool\`，并自动生成 `使用说明.txt`、`dist\release\ImeIconTool-win64.zip` 与 `dist\release\SHA256SUMS.txt`。
+
+**为什么用 `--onedir` 而不是 `--onefile`**：
 
 `--onefile` 会在每次启动时把自身解压到 `%TEMP%\_MEIxxxxxx`，在部分机器上会
 因为临时目录权限、杀软拦截或 VC 运行库缺失而启动失败（典型报错是
@@ -115,14 +115,14 @@ Windows 对任务栏图标有缓存。程序里有个「刷新图标」按钮（
 
 | 控制 | 做法 |
 |---|---|
-| **路径收敛** | 只会把 `IconFile` 指向本程序数据目录（`%LOCALAPPDATA%\ImeIconTool`）内的文件。用户无法通过界面输入任意路径 |
+| **路径收敛** | 应用新图标时只允许 `IconFile` 指向 `%LOCALAPPDATA%\ImeIconTool` 内的文件；提权还原只接受本地原始备份或 COM `InprocServer32` 推导出的主模块（双源白名单） |
 | **写入前校验** | 目标文件必须是合法 x64 PE，且恰好含 1 个 `RT_GROUP_ICON`，并用系统 API `ExtractIconExW` 复核能取出图标 |
-| **提权后二次校验** | 提权进程**不盲信**传入的数据，重新校验一遍路径收敛与注册表键路径前缀 |
+| **提权后二次校验** | 提权进程**不盲信**传入的数据，要求载荷 JSON 本身也位于数据目录内，并重新校验路径与剖面键前缀 |
 | **不经过 shell** | 提权动作是程序内的固定分支，不拼装命令行、不调用 `cmd`/`reg.exe` |
 | **不联网** | 源码中不含任何网络库。可断网使用 |
 | **不收集数据** | 无账号、无遥测、无设备指纹 |
-| **强制备份** | 写注册表前必须备份原值**及其数据类型**（`REG_SZ` / `REG_EXPAND_SZ`）。写错类型会破坏输入法 |
-| **只看不改别的** | 只碰目标剖面的 `IconFile` 一个值，其余值一律不动 |
+| **强制备份** | 写注册表前必须按剖面分别备份原值、**数据类型**（`REG_SZ` / `REG_EXPAND_SZ`）与 `IconIndex`，支持全量导出与受限导入 |
+| **只改图标两值** | 只碰目标剖面的 `IconFile` 与 `IconIndex` 两个值，其余值一律不动 |
 
 ### 关于「身份认证」
 
@@ -156,8 +156,9 @@ HKLM\SOFTWARE\Microsoft\CTF\TIP\{CLSID}\LanguageProfile\{LANG}\{GUID}
     IconIndex  REG_DWORD  该文件中图标的序号
 ```
 
-本程序把 `IconFile` 指向自己生成的一个**只含图标资源、不含任何代码**的
-小型 DLL（`iconhost.dll`），从而改变任务栏上显示的图标。
+本程序为每个自定义输入法生成独立的版本化宿主 DLL（**只含图标资源、不含任何代码**，
+形如 `icon_<剖面哈希>_<内容哈希>.dll`），从而改变任务栏上显示的图标：多个输入法互不覆盖，
+同一输入法换字也不受旧文件占用锁死。旧版未引用的 DLL 会尽最大努力自动清理。
 
 它**不修改**输入法自己的任何文件 —— 这也是为什么调用输入法的功能不受影响。
 
@@ -189,11 +190,16 @@ HKLM\SOFTWARE\Microsoft\CTF\TIP\{CLSID}\LanguageProfile\{LANG}\{GUID}
 
 ```
 ime-icon-tool/
+├── .github/workflows/
+│   ├── tests.yml           CI 自动测试与语法检查
+│   └── release.yml         Tag 发布自动构建 Release
+├── scripts/
+│   └── build_release.py    本地与 CI 共用的打包发布脚本
 ├── src/
 │   ├── ime_icon_tool.pyw   主程序（GUI + 注册表 + 提权）
 │   └── peicon.py           纯 Python 生成图标宿主 PE 文件
 ├── tests/
-│   ├── test_security.py    安全控制验收（43 项客观判据）
+│   ├── test_security.py    安全控制与核心功能验收测试
 │   └── smoke_test.py       真机冒烟测试（枚举 / 推导 / 端到端生成）
 ├── docs/
 │   ├── DESIGN.md           设计文档：用户、场景、取舍
@@ -213,8 +219,9 @@ python tests\smoke_test.py
 ```
 
 `test_security.py` 覆盖：输入校验、路径收敛（8 种穿越/前缀攻击）、
-提权载荷二次校验（6 种伪造载荷）、坏文件拒绝、正向生成校验、
-无网络代码、无危险进程操作、无硬编码隐私路径。
+提权写入/还原载荷校验、CLI 载荷路径收敛、四种样式像素与 PE 校验、
+多输入法版本化 DLL 隔离与清理、备份整数兼容/防污染/全量导出与受限导入、
+坏文件拒绝、正向生成校验、无网络代码、无危险进程操作、无硬编码隐私路径。
 
 `smoke_test.py` 需要真实 Windows 环境（要读注册表）。
 

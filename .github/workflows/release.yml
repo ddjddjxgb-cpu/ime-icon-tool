@@ -1,0 +1,54 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "可选版本标签（例如 v1.2.0）"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装构建与运行依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install "pyinstaller>=5.0"
+
+      - name: 测试并构建发布压缩包
+        env:
+          RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+        run: python scripts/build_release.py
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ImeIconTool-win64
+          path: |
+            dist/release/ImeIconTool-win64.zip
+            dist/release/SHA256SUMS.txt
+
+      - name: 发布 GitHub Release（Tag 触发时）
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/release/ImeIconTool-win64.zip
+            dist/release/SHA256SUMS.txt
+          generate_release_notes: true
