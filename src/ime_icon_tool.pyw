@@ -41,10 +41,7 @@ from tkinter import filedialog, messagebox, ttk
 APP_NAME = "输入法任务栏图标工具"
 APP_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
                        "ImeIconTool")
-HOST_DLL = os.path.join(APP_DIR, "iconhost.dll")            # 旧版单文件路径（保留兼容清理）
 HOST_ICO = os.path.join(APP_DIR, "icon.ico")
-BACKUP_JSON = os.path.join(APP_DIR, "backup.json")          # 旧格式：只存一条
-BACKUPS_JSON = os.path.join(APP_DIR, "backups.json")        # 新格式：按剖面分别存
 LOG_TXT = os.path.join(APP_DIR, "diagnostics.txt")
 
 TIP_ROOT = r"SOFTWARE\Microsoft\CTF\TIP"
@@ -202,6 +199,9 @@ def normalize_reg_type(t):
         if norm in ("REG_SZ", "REG_EXPAND_SZ"):
             return norm
     return None
+
+
+REG_TYPE_MAP = {"REG_SZ": winreg.REG_SZ, "REG_EXPAND_SZ": winreg.REG_EXPAND_SZ}
 
 
 def reg_value_type_name(t):
@@ -591,13 +591,10 @@ def _normalize_backup_record(rec):
     iconfile = rec.get("iconfile")
     if not isinstance(iconfile, str) or not iconfile.strip():
         return None
-    norm_type = normalize_reg_type(rec.get("icontype"))
-    if norm_type is None:
-        norm_type = "REG_SZ"
-    idx = rec.get("iconindex", 0)
+    norm_type = normalize_reg_type(rec.get("icontype")) or "REG_SZ"
+    raw_idx = rec.get("iconindex", 0)
+    idx = _checked_iconindex({"iconindex": 0 if raw_idx is None else raw_idx})
     if idx is None:
-        idx = 0
-    if isinstance(idx, bool) or not isinstance(idx, int) or not (0 <= idx <= 4096):
         idx = 0
     return {
         "profile": rec["profile"],
@@ -645,8 +642,8 @@ def save_backup(profile_path, iconfile, icontype, iconindex, app_dir=None):
     ensure_app_dir(base)
 
     norm_type = normalize_reg_type(icontype) or "REG_SZ"
-    idx = 0 if (iconindex is None or isinstance(iconindex, bool) or not isinstance(iconindex, int)) else iconindex
-    if not (0 <= idx <= 4096):
+    idx = _checked_iconindex({"iconindex": 0 if iconindex is None else iconindex})
+    if idx is None:
         idx = 0
 
     allb = _load_all_backups(base)
@@ -728,7 +725,7 @@ def import_backups_from_file(path, known_profiles, app_dir=None):
             skipped.append("存在非对象记录，已跳过")
             continue
         prof = rec.get("profile")
-        if not isinstance(prof, str) or not prof.startswith("SOFTWARE\\Microsoft\\CTF\\TIP\\") or "\\LanguageProfile\\" not in prof:
+        if not _is_valid_tip_profile(prof):
             skipped.append("无效剖面路径：%r" % prof)
             continue
         if prof not in known:
@@ -838,8 +835,7 @@ def validate_write_payload(payload, app_dir=None):
     if not ok:
         return 9, None
 
-    tmap = {"REG_SZ": winreg.REG_SZ, "REG_EXPAND_SZ": winreg.REG_EXPAND_SZ}
-    return 0, (prof, value, tmap[norm_type], idx)
+    return 0, (prof, value, REG_TYPE_MAP[norm_type], idx)
 
 
 def _same_icon_target(a, b):
@@ -886,8 +882,7 @@ def validate_restore_payload(payload, app_dir=None):
     if not ok:
         return 9, None
 
-    tmap = {"REG_SZ": winreg.REG_SZ, "REG_EXPAND_SZ": winreg.REG_EXPAND_SZ}
-    return 0, (prof, value, tmap[norm_type], idx)
+    return 0, (prof, value, REG_TYPE_MAP[norm_type], idx)
 
 
 def elevated_write(payload, app_dir=None):
@@ -925,49 +920,39 @@ def _format_elev_error(code, action="写入"):
     )
 
 
-def run_elevated_write(profile, value, vtype, iconindex=0):
-    """写注册表（已是管理员则直接同进程写入，否则先校验再拉起提权副本）；返回 (ok, 说明)。"""
+def _run_elevated(action, flag, profile, value, vtype, iconindex, validator, runner, extra=None):
     norm_type = normalize_reg_type(vtype)
     if norm_type is None:
-        return False, _format_elev_error(6, "写入")
+        return False, _format_elev_error(6, action)
     idx = _checked_iconindex({"iconindex": 0 if iconindex is None else iconindex})
     if idx is None:
-        return False, _format_elev_error(8, "写入")
+        return False, _format_elev_error(8, action)
     payload = dict(profile=profile, value=value, type=norm_type, iconindex=idx)
-    rc, _parsed = validate_write_payload(payload)
+    if extra:
+        payload.update(extra)
+    rc, _parsed = validator(payload)
     if rc != 0:
-        return False, _format_elev_error(rc, "写入")
+        return False, _format_elev_error(rc, action)
     if is_admin():
-        code = elevated_write(payload)
-        return (True, "写入成功") if code == 0 else (False, _format_elev_error(code, "写入"))
+        code = runner(payload)
+        return (True, "%s成功" % action) if code == 0 else (False, _format_elev_error(code, action))
 
     ensure_app_dir()
     payload_file = os.path.join(APP_DIR, "_elev.json")
     _atomic_write_json(payload_file, payload)
-    return _spawn_elevated(["--elevate-write", payload_file], "写入")
+    return _spawn_elevated([flag, payload_file], action)
+
+
+def run_elevated_write(profile, value, vtype, iconindex=0):
+    """写注册表（已是管理员则直接同进程写入，否则先校验再拉起提权副本）；返回 (ok, 说明)。"""
+    return _run_elevated("写入", "--elevate-write", profile, value, vtype, iconindex,
+                         validate_write_payload, elevated_write)
 
 
 def run_elevated_restore(profile, iconfile, icontype, iconindex=0):
     """还原原始值。IconIndex 与 IconFile 一起写回（iconindex=None 兜底按 0 处理）。"""
-    norm_type = normalize_reg_type(icontype)
-    if norm_type is None:
-        return False, _format_elev_error(6, "还原")
-    idx = _checked_iconindex({"iconindex": 0 if iconindex is None else iconindex})
-    if idx is None:
-        return False, _format_elev_error(8, "还原")
-    payload = dict(profile=profile, value=iconfile, type=norm_type,
-                   iconindex=idx, restore=True)
-    rc, _parsed = validate_restore_payload(payload)
-    if rc != 0:
-        return False, _format_elev_error(rc, "还原")
-    if is_admin():
-        code = elevated_restore(payload)
-        return (True, "还原成功") if code == 0 else (False, _format_elev_error(code, "还原"))
-
-    ensure_app_dir()
-    payload_file = os.path.join(APP_DIR, "_elev.json")
-    _atomic_write_json(payload_file, payload)
-    return _spawn_elevated(["--elevate-restore", payload_file], "还原")
+    return _run_elevated("还原", "--elevate-restore", profile, iconfile, icontype, iconindex,
+                         validate_restore_payload, elevated_restore, extra={"restore": True})
 
 
 def _spawn_elevated(args, action="写入"):
@@ -1068,7 +1053,6 @@ class App:
         self.imes = []
         self.sel = None          # 选中的剖面
         self.font_families = available_font_families()
-        self.fonts = available_fonts()
         self.char = tk.StringVar(value="中")
         self.style_var = tk.StringVar(value=DEFAULT_STYLE)
         self.font_name = tk.StringVar(value=self.font_families[0][0])

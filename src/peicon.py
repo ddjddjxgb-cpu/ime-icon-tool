@@ -171,14 +171,12 @@ def _build_rsrc(tree):
     return bytes(buf), pos, blob_off, data_off
 
 
-def build_icon_dll(ico_bytes, group_id=1, lang_id=0, verify_hook=None):
+def build_icon_dll(ico_bytes, group_id=1, lang_id=0):
     """把 .ico 的内容打包成一个最小 x64 PE（DLL）。返回 bytes。
 
     lang_id 默认 0（中性语言），与 ResourceHacker 生成的可用样本一致。
     **但它不是成败关键**：在目录层级正确的前提下，实测 0x0 / 0x409 / 0x804
     三种语言都能被 ExtractIconEx 正常解析。真正必须的是 `_build_rsrc` 里的层级。
-
-    verify_hook(path) 可选：写盘后由调用方做结构与 ExtractIconEx 校验。
     """
     entries = parse_ico(ico_bytes)
     icons = {}
@@ -260,7 +258,7 @@ def build_icon_dll(ico_bytes, group_id=1, lang_id=0, verify_hook=None):
 
 
 # --------------------------------------------------------------------------
-# 自检（与技能库中 verify.py 的判据一致）
+# 静态结构自检
 # --------------------------------------------------------------------------
 
 def check_pe(data):
@@ -342,39 +340,15 @@ def check_pe(data):
 
 if __name__ == "__main__":
     import io
-    import os
-    import sys
-
     from PIL import Image
-    from PIL import ImageDraw
-    from PIL import ImageFont
 
-    def render(ch, size, font_path, index, ratio=0.86):
-        im = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-        d = ImageDraw.Draw(im)
-        avail = int(size * ratio)
-        fpx = max(6, int(size * 1.2))
-        while fpx > 5:
-            f = ImageFont.truetype(font_path, fpx, index=index)
-            b = d.textbbox((0, 0), ch, font=f)
-            if (b[2] - b[0]) <= avail and (b[3] - b[1]) <= avail:
-                break
-            fpx -= 1
-        f = ImageFont.truetype(font_path, fpx, index=index)
-        b = d.textbbox((0, 0), ch, font=f)
-        d.text(((size - (b[2] - b[0])) // 2 - b[0],
-                (size - (b[3] - b[1])) // 2 - b[1]), ch, font=f, fill=(0, 0, 0, 255))
-        return im
-
-    sizes = [16, 20, 24, 32, 40, 48, 64, 128, 256]
-    imgs = [render("测", s, r"C:\Windows\Fonts\msyh.ttc", 1) for s in sizes]
-    order = sorted(range(len(imgs)), key=lambda i: imgs[i].size[0])
+    sizes = [16, 20, 24, 32, 48]
+    imgs = [Image.new("RGBA", (s, s), (15, 108, 189, 255)) for s in sizes]
     buf = io.BytesIO()
-    imgs[order[-1]].save(buf, format="ICO", sizes=[im.size for im in imgs],
-                         append_images=[imgs[i] for i in order[:-1]])
+    imgs[-1].save(buf, format="ICO", sizes=[im.size for im in imgs],
+                  append_images=imgs[:-1])
 
     dll = build_icon_dll(buf.getvalue())
-    # 写进系统临时目录，不往任何固定路径丢文件
     out = os.path.join(tempfile.gettempdir(), "_peicon_selftest.dll")
     with open(out, "wb") as fh:
         fh.write(dll)
