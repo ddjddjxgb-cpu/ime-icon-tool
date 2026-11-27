@@ -19,6 +19,13 @@ import sys
 import zipfile
 from pathlib import Path
 
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 ROOT = Path(__file__).resolve().parent.parent
 DIST_DIR = ROOT / "dist"
 BUILD_DIR = ROOT / "build"
@@ -30,7 +37,10 @@ SHA_PATH = RELEASE_DIR / "SHA256SUMS.txt"
 
 def run(cmd, cwd=ROOT):
     print("+", " ".join(str(c) for c in cmd), flush=True)
-    res = subprocess.run(cmd, cwd=str(cwd))
+    env = dict(os.environ)
+    env.setdefault("PYTHONUTF8", "1")
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    res = subprocess.run(cmd, cwd=str(cwd), env=env)
     if res.returncode != 0:
         raise SystemExit(res.returncode)
 

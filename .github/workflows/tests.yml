@@ -1,5 +1,9 @@
 name: tests
 
+env:
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
+
 on:
   push:
     branches: [main, master]

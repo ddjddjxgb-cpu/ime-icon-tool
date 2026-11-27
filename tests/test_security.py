@@ -19,6 +19,13 @@ import struct
 import sys
 import tempfile
 
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 SRC = os.path.join(ROOT, "src")
@@ -393,6 +400,32 @@ all_fonts_exist = all(
     for path, _idx in wmap.values()
 )
 check("返回的所有字重文件在磁盘真实存在", all_fonts_exist, True)
+
+zh_paths = {
+    os.path.normcase(path)
+    for _fam, wmap in m.FONT_FAMILIES
+    for path, _idx in wmap.values()
+}
+fb_fams = m.available_font_families(
+    exists_fn=lambda p: (os.path.normcase(p) not in zh_paths) and os.path.exists(p)
+)
+check("无中文字体时回退到英文系统字体",
+      len(fb_fams) >= 1 and fb_fams[0][0] in ("Segoe UI", "Arial", "Tahoma"), True)
+fb_exist = all(
+    os.path.exists(path)
+    for _fam, wmap in fb_fams
+    for path, _idx in wmap.values()
+)
+check("回退英文字体文件在磁盘真实存在", fb_exist, True)
+fb_fp, fb_fi = (fb_fams[0][1].get("常规") or next(iter(fb_fams[0][1].values())))
+with tempfile.TemporaryDirectory() as td_fb:
+    ico_fb = m.render_ico("A", fb_fp, fb_fi, 0.86)
+    dll_fb = peicon.build_icon_dll(ico_fb)
+    p_fb = os.path.join(td_fb, "_fb.dll")
+    with open(p_fb, "wb") as f:
+        f.write(dll_fb)
+    ok_fb, why_fb = m.verify_host_dll(p_fb)
+    check("回退英文字体生成的 DLL 通过校验", ok_fb, True, why_fb)
 
 print()
 print("=" * 78)

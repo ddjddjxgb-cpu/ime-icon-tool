@@ -77,22 +77,49 @@ FONT_FAMILIES = [
         "常规": (r"C:\Windows\Fonts\simsun.ttc", 0),
     }),
 ]
+# 英文 Windows（如 GitHub Actions windows-latest）通常未安装中文字体包时的兜底字体
+FALLBACK_FONT_FAMILIES = [
+    ("Segoe UI", {
+        "常规": (r"C:\Windows\Fonts\segoeui.ttf", 0),
+        "细体": (r"C:\Windows\Fonts\segoeuil.ttf", 0),
+        "加粗": (r"C:\Windows\Fonts\segoeuib.ttf", 0),
+    }),
+    ("Arial", {
+        "常规": (r"C:\Windows\Fonts\arial.ttf", 0),
+        "加粗": (r"C:\Windows\Fonts\arialbd.ttf", 0),
+    }),
+    ("Tahoma", {
+        "常规": (r"C:\Windows\Fonts\tahoma.ttf", 0),
+        "加粗": (r"C:\Windows\Fonts\tahomabd.ttf", 0),
+    }),
+]
 WEIGHTS = ["常规", "细体", "加粗"]
 BAD_CHARS = set('\\/:*?"<>|')
 
 
-def available_font_families():
+def available_font_families(exists_fn=None):
     """返回本机实际存在的字体家族及其可用字重：[(family_name, {weight: (path, idx)})]。"""
-    out = []
-    for family_name, weights in FONT_FAMILIES:
-        avail = {
-            w: (path, idx)
-            for w, (path, idx) in weights.items()
-            if os.path.exists(path)
-        }
-        if avail:
-            out.append((family_name, avail))
-    return out or [("微软雅黑", {"常规": (r"C:\Windows\Fonts\msyh.ttc", 0)})]
+    exists = exists_fn or os.path.exists
+
+    def _collect(candidates):
+        res = []
+        for family_name, weights in candidates:
+            avail = {
+                w: (path, idx)
+                for w, (path, idx) in weights.items()
+                if exists(path)
+            }
+            if avail:
+                res.append((family_name, avail))
+        return res
+
+    out = _collect(FONT_FAMILIES)
+    if out:
+        return out
+    fb = _collect(FALLBACK_FONT_FAMILIES)
+    if fb:
+        return fb
+    return [("Segoe UI", {"常规": (r"C:\Windows\Fonts\segoeui.ttf", 0)})]
 
 
 def available_fonts():
