@@ -388,6 +388,25 @@ with tempfile.TemporaryDirectory() as td:
     check("handle_cli 拒绝数据目录外的载荷路径（rc=4）", cli_rc, 4)
     check("被拒绝的外部路径未产生 .done 标记", os.path.exists(outside_json + ".done"), False)
 
+    # 5. Issue #1 边界：normalize_reg_type 大小写/连字符容错，以及 run_elevated_* 对 iconindex=None 兜底
+    check("normalize_reg_type 容错 'reg_sz'", m.normalize_reg_type("reg_sz"), "REG_SZ")
+    check("normalize_reg_type 容错 'Reg-Sz'", m.normalize_reg_type("Reg-Sz"), "REG_SZ")
+    check("normalize_reg_type 容错 '  reg-expand-sz  '", m.normalize_reg_type("  reg-expand-sz  "), "REG_EXPAND_SZ")
+    check("normalize_reg_type 拒绝 'reg_dword'", m.normalize_reg_type("reg_dword"), None)
+    check("normalize_reg_type 拒绝 bool", m.normalize_reg_type(True), None)
+
+    ok_w, msg_w = m.run_elevated_write("INVALID_PROFILE", os.path.join(appdir, "x.dll"), "reg_sz", iconindex=None)
+    check("run_elevated_write 接受 iconindex=None 与小写类型且不抛 TypeError",
+          (not ok_w) and ("代码 3" in msg_w), True, msg_w.splitlines()[0])
+
+    ok_r, msg_r = m.run_elevated_restore("INVALID_PROFILE", SYS_DLL, "reg-expand-sz", iconindex=None)
+    check("run_elevated_restore 接受 iconindex=None 与连字符类型且不抛 TypeError",
+          (not ok_r) and ("代码 3" in msg_r), True, msg_r.splitlines()[0])
+
+    ok_r_bool, msg_r_bool = m.run_elevated_restore(prof_a, SYS_DLL, "reg_sz", iconindex=True)
+    check("run_elevated_restore 拒绝 bool 型 iconindex（代码 8）",
+          (not ok_r_bool) and ("代码 8" in msg_r_bool), True, msg_r_bool.splitlines()[0])
+
 print()
 print("=" * 78)
 print("N. 字体家族与字重联动校验")

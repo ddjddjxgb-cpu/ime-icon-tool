@@ -190,13 +190,17 @@ def is_within(child, parent):
 # 注册表类型与输入法枚举
 # --------------------------------------------------------------------------
 def normalize_reg_type(t):
-    """把注册表值类型（整数或字符串）统一标准化为 'REG_SZ' / 'REG_EXPAND_SZ'。"""
+    """把注册表值类型（整数或字符串，兼容大小写与连字符）统一标准化为 'REG_SZ' / 'REG_EXPAND_SZ'。"""
     if isinstance(t, bool):
         return None
-    if t == winreg.REG_SZ or t == "REG_SZ":
+    if t == winreg.REG_SZ:
         return "REG_SZ"
-    if t == winreg.REG_EXPAND_SZ or t == "REG_EXPAND_SZ":
+    if t == winreg.REG_EXPAND_SZ:
         return "REG_EXPAND_SZ"
+    if isinstance(t, str):
+        norm = t.strip().upper().replace("-", "_")
+        if norm in ("REG_SZ", "REG_EXPAND_SZ"):
+            return norm
     return None
 
 
@@ -922,11 +926,17 @@ def _format_elev_error(code, action="写入"):
 
 
 def run_elevated_write(profile, value, vtype, iconindex=0):
-    """写注册表（已是管理员则直接同进程写入，否则拉起提权副本）；返回 (ok, 说明)。"""
+    """写注册表（已是管理员则直接同进程写入，否则先校验再拉起提权副本）；返回 (ok, 说明)。"""
     norm_type = normalize_reg_type(vtype)
     if norm_type is None:
         return False, _format_elev_error(6, "写入")
-    payload = dict(profile=profile, value=value, type=norm_type, iconindex=int(iconindex))
+    idx = _checked_iconindex({"iconindex": 0 if iconindex is None else iconindex})
+    if idx is None:
+        return False, _format_elev_error(8, "写入")
+    payload = dict(profile=profile, value=value, type=norm_type, iconindex=idx)
+    rc, _parsed = validate_write_payload(payload)
+    if rc != 0:
+        return False, _format_elev_error(rc, "写入")
     if is_admin():
         code = elevated_write(payload)
         return (True, "写入成功") if code == 0 else (False, _format_elev_error(code, "写入"))
@@ -937,13 +947,19 @@ def run_elevated_write(profile, value, vtype, iconindex=0):
     return _spawn_elevated(["--elevate-write", payload_file], "写入")
 
 
-def run_elevated_restore(profile, iconfile, icontype, iconindex):
-    """还原原始值。IconIndex 与 IconFile 一起写回。"""
+def run_elevated_restore(profile, iconfile, icontype, iconindex=0):
+    """还原原始值。IconIndex 与 IconFile 一起写回（iconindex=None 兜底按 0 处理）。"""
     norm_type = normalize_reg_type(icontype)
     if norm_type is None:
         return False, _format_elev_error(6, "还原")
+    idx = _checked_iconindex({"iconindex": 0 if iconindex is None else iconindex})
+    if idx is None:
+        return False, _format_elev_error(8, "还原")
     payload = dict(profile=profile, value=iconfile, type=norm_type,
-                   iconindex=int(iconindex), restore=True)
+                   iconindex=idx, restore=True)
+    rc, _parsed = validate_restore_payload(payload)
+    if rc != 0:
+        return False, _format_elev_error(rc, "还原")
     if is_admin():
         code = elevated_restore(payload)
         return (True, "还原成功") if code == 0 else (False, _format_elev_error(code, "还原"))
